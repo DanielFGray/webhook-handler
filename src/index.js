@@ -1,6 +1,7 @@
-/* global __non_webpack_require__:false */
 /* eslint-disable no-console */
 require('dotenv/config')
+const fs = require('fs')
+const path = require('path')
 const Koa = require('koa')
 const Router = require('koa-router')
 const bodyParser = require('koa-body')
@@ -9,8 +10,6 @@ const koaHelmet = require('koa-helmet')
 const {
   PORT: port,
   HOST: host,
-  APP_BASE: appBase,
-  PUBLIC_DIR: publicDir,
 } = process.env
 
 const app = new Koa()
@@ -19,39 +18,47 @@ const app = new Koa()
     jsonLimit: '4mb',
   }))
 
-  .use(async function errorHandler(ctx, next) {
+  .use(async (ctx, next) => {
     try {
       await next()
     } catch (e) {
       console.error(e)
       ctx.status = 500
-      ctx.body = 'Internal Server Error'
+      ctx.body = e.message
     }
   })
 
-  .use(async function timer(ctx, next) {
-    await next()
-    const rt = ctx.response.get('X-Response-Time')
-    console.log(`${ctx.method} ${ctx.url} ${ctx.status} - ${rt}`)
-  })
-
-  .use(async function logger(ctx, next) {
+  .use(async (ctx, next) => {
     const start = Date.now()
     await next()
     const ms = Date.now() - start
     ctx.set('X-Response-Time', `${ms}ms`)
   })
 
-  const router = new Router()
-    .all(['/:service/:entry', '/:service'], async function webhookHandler(ctx) {
-      console.log(ctx.params, ctx.request.body)
-      ctx.body = 'OK'
-    })
+const router = new Router()
+  .all('/:service/:entry', async ctx => {
+    const { service, entry } = ctx.params
+    const { body } = ctx.request
+    if (! body) {
+      throw new Error('ACK')
+    }
+    await fs.promises.appendFile(path.join('./logs', `${service}.${entry}`), `${JSON.stringify(body)}\n`)
+    ctx.body = 'OK\n'
+  })
+  .all('/*', async ctx => {
+    ctx.body = 'ACK\n'
+  })
 
-  app
-    .use(router.allowedMethods())
-    .use(router.routes())
-    .listen(port, host, () => console.info(`server now running on http://${host}:${port}`))
+app
+  .use(router.allowedMethods())
+  .use(router.routes());
+(async function main() {
+  try {
+    await fs.promises.mkdir('./logs')
+  } catch (e) { /* fallthrough */ }
+  await new Promise(res => { app.listen(port, host, res) })
+  console.info(`server now running on http://${host}:${port}`)
+}())
 
 function die(e) {
   console.error(e)
