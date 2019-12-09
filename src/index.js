@@ -1,49 +1,25 @@
 /* global __non_webpack_require__:false */
 /* eslint-disable no-console */
-import Koa from 'koa'
-import Router from 'koa-router'
-import bodyParser from 'koa-body'
-import send from 'koa-send'
-import koaHelmet from 'koa-helmet'
-import SSR from './SSR'
+require('dotenv/config')
+const Koa = require('koa')
+const Router = require('koa-router')
+const bodyParser = require('koa-body')
+const koaHelmet = require('koa-helmet')
 
 const {
-  appBase,
-  host,
-  port,
-  publicDir,
-} = __non_webpack_require__('../config')
-
-const getData = async () => ({
-  list: [
-    { id: 1, name: 'foo' },
-    { id: 2, name: 'bar' },
-  ],
-  seed: Math.random(),
-})
-
-const router = new Router()
-  .all('/ping', async ctx => {
-    ctx.body = 'pong'
-  })
-
-  .get('/api/v1', async ctx => {
-    ctx.body = { status: 'ok', body: await getData() }
-  })
-
-  .all('/api*', async ctx => {
-    ctx.status = 500
-    ctx.body = { status: 'error', body: 'not implemented' }
-  })
-
-  .get('/*', SSR({ getData, appBase }))
+  PORT: port,
+  HOST: host,
+  APP_BASE: appBase,
+  PUBLIC_DIR: publicDir,
+} = process.env
 
 const app = new Koa()
-
   .use(koaHelmet())
-  .use(bodyParser())
+  .use(bodyParser({
+    jsonLimit: '4mb',
+  }))
 
-  .use(async (ctx, next) => {
+  .use(async function errorHandler(ctx, next) {
     try {
       await next()
     } catch (e) {
@@ -53,45 +29,35 @@ const app = new Koa()
     }
   })
 
-  .use(async (ctx, next) => {
+  .use(async function timer(ctx, next) {
     await next()
     const rt = ctx.response.get('X-Response-Time')
     console.log(`${ctx.method} ${ctx.url} ${ctx.status} - ${rt}`)
   })
 
-  .use(async (ctx, next) => {
+  .use(async function logger(ctx, next) {
     const start = Date.now()
     await next()
     const ms = Date.now() - start
     ctx.set('X-Response-Time', `${ms}ms`)
   })
 
-  .use(async (ctx, next) => {
-    if (ctx.path.startsWith('/api')) {
-      ctx.set('Content-Type', 'application/json')
-    }
-    return next()
-  })
+  const router = new Router()
+    .all(['/:service/:entry', '/:service'], async function webhookHandler(ctx) {
+      console.log(ctx.params, ctx.request.body)
+      ctx.body = 'OK'
+    })
 
-  .use(async (ctx, next) => {
-    try {
-      if (ctx.path !== '/') {
-        return await send(ctx, ctx.path, { root: publicDir })
-      }
-    } catch (e) { /* fallthrough */ }
-    return next()
-  })
+  app
+    .use(router.allowedMethods())
+    .use(router.routes())
+    .listen(port, host, () => console.info(`server now running on http://${host}:${port}`))
 
-  .use(router.allowedMethods())
-  .use(router.routes())
-
-  .listen(port, host, () => console.info(`server now running on http://${host}:${port}`))
-
-process.on('exit', () => console.info('exiting!'))
-process.on('SIGINT', () => console.info('interrupted!'))
-process.on('uncaughtException', e => {
+function die(e) {
   console.error(e)
   process.exit(1)
-})
+}
 
-export default app
+process.on('exit', () => die('exiting!'))
+process.on('SIGINT', () => die('interrupted!'))
+process.on('uncaughtException', die)
