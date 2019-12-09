@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 require('dotenv/config')
-const fs = require('fs')
+const fs = require('fs-extra')
 const path = require('path')
 const Koa = require('koa')
 const Router = require('koa-router')
@@ -24,7 +24,7 @@ const app = new Koa()
     } catch (e) {
       console.error(e)
       ctx.status = 500
-      ctx.body = e.message
+      ctx.body = `${e.message}\n`
     }
   })
 
@@ -42,20 +42,20 @@ const router = new Router()
     if (! body) {
       throw new Error('ACK')
     }
-    await fs.promises.appendFile(path.join('./logs', `${service}.${entry}`), `${JSON.stringify(body)}\n`)
+    await fs.mkdirp(path.resolve('./logs'))
+    await fs.appendFile(path.resolve('./logs', `${service}.${entry}`), `${JSON.stringify(body)}\n`)
     ctx.body = 'OK\n'
   })
   .all('/*', async ctx => {
+    ctx.status = 400
     ctx.body = 'ACK\n'
   })
 
 app
   .use(router.allowedMethods())
   .use(router.routes());
+
 (async function main() {
-  try {
-    await fs.promises.mkdir('./logs')
-  } catch (e) { /* fallthrough */ }
   await new Promise(res => { app.listen(port, host, res) })
   console.info(`server now running on http://${host}:${port}`)
 }())

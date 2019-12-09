@@ -8,6 +8,8 @@ services:
   gqlblog:
     build: .
     container_name: webhooks
+    volumes:
+      - ./logs:/opt/nodeapp/logs
     networks:
       - appnet
     environment:
